@@ -179,6 +179,20 @@ html, body {
   border-color: var(--primary);
 }
 
+/* "Add another series" button, subtle, at the end of each exercise block. */
+.btn-add {
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+.btn-add:active { background: #e3e9ee; }
+
 /* Small steppers: about the height of the "Serie x/y" text. */
 .btn-mini {
   width: 24px;

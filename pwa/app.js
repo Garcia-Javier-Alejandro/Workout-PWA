@@ -97,7 +97,8 @@ async function startNewSession() {
   render();
 }
 
-// Ensure an active session has all 15 series in the new one-page format.
+// Ensure an active session has at least the routine's base series per exercise
+// in the new one-page format, while preserving any extra series the user added.
 // This migrates sessions created by an older app version (which stored only the
 // completed sets plus a cursor) and repairs any session missing series, so an
 // in-progress session is never lost or left with no rows to edit. Idempotent
@@ -110,7 +111,11 @@ function ensureFullSession(session, completedSessions) {
   }
   const sets = [];
   for (const ex of window.ROUTINE) {
-    for (let n = 1; n <= ex.sets; n++) {
+    const own = (session.sets || []).filter((s) => s.exercise_id === ex.id);
+    // Cover the base series (1..ex.sets) plus any higher set_numbers the user
+    // added, without filling gaps in the extra range.
+    const maxN = Math.max(ex.sets, ...own.map((s) => s.set_number), 0);
+    for (let n = 1; n <= maxN; n++) {
       const existing = byKey.get(`${ex.id}#${n}`);
       if (existing) {
         sets.push({
@@ -118,14 +123,14 @@ function ensureFullSession(session, completedSessions) {
           exercise_id: ex.id,
           set_number: n,
           reps: typeof existing.reps === "number" ? existing.reps : ex.initialReps,
-          weight: typeof existing.weight === "number" ? existing.weight : 0,
+          weight: typeof existing.weight === "number" ? existing.weight : DEFAULT_WEIGHT,
           // A set already recorded by the old model was intentional -> touched.
           touched: existing.touched !== undefined ? existing.touched : true,
         });
-      } else {
-        // Seed weight from the session's own recorded sets for this exercise,
-        // else from global completed history, else 0.
-        const own = (session.sets || []).filter((s) => s.exercise_id === ex.id);
+      } else if (n <= ex.sets) {
+        // A missing base series: seed weight from the session's own recorded
+        // sets for this exercise, else from global completed history, else the
+        // default.
         const seed = own.length
           ? own[own.length - 1].weight
           : lastWeightFor(ex.id, completedSessions);
@@ -138,6 +143,7 @@ function ensureFullSession(session, completedSessions) {
           touched: false,
         });
       }
+      // n > ex.sets with no existing set: skip (do not fabricate extra series).
     }
   }
   session.sets = sets;
@@ -147,7 +153,34 @@ function ensureFullSession(session, completedSessions) {
   return session;
 }
 
-// The only mechanism that closes a session. Saves all 15 series to D1.
+// Append another series to an exercise. It gets the next set_number and seeds
+// its weight from that exercise's last series in the session (reps from the
+// routine's initial value). Works with history: it is just another set row.
+async function addSeries(exerciseId) {
+  if (!active) return;
+  const ex = exerciseById(exerciseId);
+  if (!ex) return;
+  const exSets = active.sets
+    .filter((s) => s.exercise_id === exerciseId)
+    .sort((a, b) => a.set_number - b.set_number);
+  const last = exSets[exSets.length - 1];
+  active.sets.push({
+    id: crypto.randomUUID(),
+    exercise_id: exerciseId,
+    set_number: last ? last.set_number + 1 : 1,
+    reps: ex.initialReps,
+    weight: last ? last.weight : DEFAULT_WEIGHT,
+    touched: false,
+  });
+  const y = window.scrollY;
+  await persistActive();
+  render();
+  window.scrollTo(0, y); // keep the user's place after the re-render
+}
+
+// The only mechanism that closes a session. Saves all its series to D1, then
+// immediately starts a fresh session (per user preference) so the next workout
+// is ready without an extra tap.
 async function completeSession() {
   if (!active) return;
   active.completed_at = new Date().toISOString();
@@ -156,8 +189,10 @@ async function completeSession() {
   await window.DB.saveCompletedSession(finished);
   await window.DB.clearActiveSession();
   active = null;
-  render();
-  // Attempt to sync; if offline/failed it stays queued and is retried later.
+  // Begin the next session right away (seeds weights from the just-saved one).
+  await startNewSession();
+  // Attempt to sync the completed session; if offline it stays queued and is
+  // retried later.
   syncPending();
 }
 
@@ -260,8 +295,11 @@ function renderTracker() {
 }
 
 function renderExerciseBlock(ex) {
-  const sets = active.sets.filter((s) => s.exercise_id === ex.id);
-  const rows = sets.map((s) => renderSeriesRow(ex, s)).join("");
+  const sets = active.sets
+    .filter((s) => s.exercise_id === ex.id)
+    .sort((a, b) => a.set_number - b.set_number);
+  const total = sets.length;
+  const rows = sets.map((s) => renderSeriesRow(s, total)).join("");
   return `
     <section class="card exercise-block">
       <h2 class="exercise-name">${esc(ex.name)}</h2>
@@ -271,13 +309,14 @@ function renderExerciseBlock(ex) {
         <span class="col-head">Reps</span>
       </div>
       ${rows}
+      <button class="btn btn-add" data-action="add-series" data-exercise-id="${ex.id}">+ Agregar serie</button>
     </section>`;
 }
 
-function renderSeriesRow(ex, s) {
+function renderSeriesRow(s, total) {
   return `
     <div class="series-row${s.touched ? " touched" : ""}" data-row-id="${s.id}">
-      <span class="series-num">Serie ${s.set_number}/${ex.sets}</span>
+      <span class="series-num">Serie ${s.set_number}/${total}</span>
       <div class="mini-stepper">
         <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="-0.5">−</button>
         <input class="mini-input" type="text" inputmode="decimal" data-val="weight" data-id="${s.id}" value="${formatWeight(s.weight)}" aria-label="Peso en kg" />
@@ -406,8 +445,11 @@ appEl.addEventListener("click", async (e) => {
     case "weight":
       await changeWeight(btn.dataset.id, Number(btn.dataset.delta));
       break;
+    case "add-series":
+      await addSeries(btn.dataset.exerciseId);
+      break;
     case "complete":
-      if (confirm("¿Completar y cerrar esta sesión? Se guardarán las 15 series.")) {
+      if (confirm("¿Completar esta sesión? Se guardarán todas las series y se iniciará una nueva.")) {
         await completeSession();
       }
       break;
