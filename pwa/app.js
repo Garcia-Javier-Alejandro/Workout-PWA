@@ -178,6 +178,29 @@ async function addSeries(exerciseId) {
   window.scrollTo(0, y); // keep the user's place after the re-render
 }
 
+// Remove a series. The remaining series of that exercise are renumbered to stay
+// contiguous (1..n). Confirms first only if the series has entered data, so an
+// accidental tap doesn't discard values. Nothing is synced yet, so this only
+// affects the in-progress session.
+async function removeSeries(id) {
+  if (!active) return;
+  const set = findSet(id);
+  if (!set) return;
+  if (set.touched && !confirm("¿Eliminar esta serie?")) return;
+  const exId = set.exercise_id;
+  active.sets = active.sets.filter((s) => s.id !== id);
+  active.sets
+    .filter((s) => s.exercise_id === exId)
+    .sort((a, b) => a.set_number - b.set_number)
+    .forEach((s, i) => {
+      s.set_number = i + 1;
+    });
+  const y = window.scrollY;
+  await persistActive();
+  render();
+  window.scrollTo(0, y);
+}
+
 // The only mechanism that closes a session. Saves all its series to D1, then
 // immediately starts a fresh session (per user preference) so the next workout
 // is ready without an extra tap.
@@ -307,6 +330,7 @@ function renderExerciseBlock(ex) {
         <span></span>
         <span class="col-head">Peso</span>
         <span class="col-head">Reps</span>
+        <span></span>
       </div>
       ${rows}
       <button class="btn btn-add" data-action="add-series" data-exercise-id="${ex.id}">+ Agregar serie</button>
@@ -327,6 +351,14 @@ function renderSeriesRow(s, total) {
         <span class="mini-val" data-val="reps" data-id="${s.id}">${s.reps}</span>
         <button class="btn btn-mini" data-action="reps" data-id="${s.id}" data-delta="1">+</button>
       </div>
+      <button class="icon-btn-trash" data-action="remove-series" data-id="${s.id}" aria-label="Eliminar serie" title="Eliminar serie">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path>
+          <path d="M10 11v6M14 11v6"></path>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+        </svg>
+      </button>
     </div>`;
 }
 
@@ -447,6 +479,9 @@ appEl.addEventListener("click", async (e) => {
       break;
     case "add-series":
       await addSeries(btn.dataset.exerciseId);
+      break;
+    case "remove-series":
+      await removeSeries(btn.dataset.id);
       break;
     case "complete":
       if (confirm("¿Completar esta sesión? Se guardarán todas las series y se iniciará una nueva.")) {
