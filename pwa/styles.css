@@ -101,27 +101,39 @@ html, body {
 
 /* ---------- exercise blocks + series rows ---------- */
 
-.exercise-block { padding: 16px 18px; }
+.exercise-block { padding: 14px 16px; }
 
 .exercise-name {
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
+}
+
+/* Header row + series rows share one grid so Peso/Reps line up as columns. */
+.series-head-row,
+.series-row {
+  display: grid;
+  grid-template-columns: 1fr 96px 96px;
+  align-items: center;
+  gap: 6px;
+}
+
+.series-head-row { padding-bottom: 4px; }
+
+.col-head {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .series-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  padding: 12px 0;
+  padding: 6px 0;
   border-top: 1px solid var(--border);
-  transition: background 0.15s ease;
 }
-.series-row:first-of-type { border-top: none; }
 
-/* Series the user has adjusted get a soft highlight + check. */
-.series-row.touched { position: relative; }
+/* Series the user has adjusted get a check next to the label. */
 .series-row.touched .series-num::after {
   content: " ✓";
   color: var(--primary-dark);
@@ -129,49 +141,39 @@ html, body {
 }
 
 .series-num {
-  flex: 1 0 100%;
   font-weight: 600;
   color: var(--text);
-  font-size: 0.95rem;
-}
-
-.mini {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  flex: 1 1 auto;
-}
-
-.mini-label {
-  font-size: 0.72rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 1rem;
 }
 
 .mini-stepper {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 6px;
 }
 
 .mini-val {
-  font-size: 1.5rem;
+  font-size: 1.05rem;
   font-weight: 700;
-  min-width: 52px;
+  min-width: 32px;
   text-align: center;
 }
 
+/* Small steppers: about the height of the "Serie x/y" text. */
 .btn-mini {
-  width: 48px;
-  height: 48px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  font-size: 1.5rem;
+  font-size: 1rem;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 /* ---------- buttons ---------- */
@@ -224,8 +226,6 @@ html, body {
   padding: 18px;
   width: 100%;
   margin-top: 24px;
-  position: sticky;
-  bottom: 12px;
 }
 .btn-complete:active { background: var(--complete-dark); }
 

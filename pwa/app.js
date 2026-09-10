@@ -191,8 +191,6 @@ function updateSetDom(set) {
   if (weightEl) weightEl.textContent = formatWeight(set.weight);
   const row = appEl.querySelector(`[data-row-id="${set.id}"]`);
   if (row) row.classList.add("touched");
-  const prog = appEl.querySelector("#progress-count");
-  if (prog) prog.textContent = `${touchedCount()}/${window.TOTAL_SETS}`;
 }
 
 // ---------- rendering ----------
@@ -223,7 +221,6 @@ function renderNoSession() {
 }
 
 function renderTracker() {
-  const total = window.TOTAL_SETS;
   const exercisesHtml = window.ROUTINE.map(renderExerciseBlock).join("");
 
   appEl.innerHTML = `
@@ -232,7 +229,6 @@ function renderTracker() {
       <button class="link-btn" data-action="go-history">Historial</button>
     </header>
     <main class="screen">
-      <div class="progress">Registradas: <strong><span id="progress-count">${touchedCount()}/${total}</span></strong> series</div>
       ${exercisesHtml}
       <button class="btn btn-complete" data-action="complete">COMPLETAR SESIÓN</button>
     </main>
@@ -245,6 +241,11 @@ function renderExerciseBlock(ex) {
   return `
     <section class="card exercise-block">
       <h2 class="exercise-name">${esc(ex.name)}</h2>
+      <div class="series-head-row">
+        <span></span>
+        <span class="col-head">Peso</span>
+        <span class="col-head">Reps</span>
+      </div>
       ${rows}
     </section>`;
 }
@@ -253,21 +254,15 @@ function renderSeriesRow(ex, s) {
   return `
     <div class="series-row${s.touched ? " touched" : ""}" data-row-id="${s.id}">
       <span class="series-num">Serie ${s.set_number}/${ex.sets}</span>
-      <div class="mini">
-        <span class="mini-label">Peso (kg)</span>
-        <div class="mini-stepper">
-          <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="-0.5">−</button>
-          <span class="mini-val" data-val="weight" data-id="${s.id}">${formatWeight(s.weight)}</span>
-          <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="0.5">+</button>
-        </div>
+      <div class="mini-stepper">
+        <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="-0.5">−</button>
+        <span class="mini-val" data-val="weight" data-id="${s.id}">${formatWeight(s.weight)}</span>
+        <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="0.5">+</button>
       </div>
-      <div class="mini">
-        <span class="mini-label">Reps</span>
-        <div class="mini-stepper">
-          <button class="btn btn-mini" data-action="reps" data-id="${s.id}" data-delta="-1">−</button>
-          <span class="mini-val" data-val="reps" data-id="${s.id}">${s.reps}</span>
-          <button class="btn btn-mini" data-action="reps" data-id="${s.id}" data-delta="1">+</button>
-        </div>
+      <div class="mini-stepper">
+        <button class="btn btn-mini" data-action="reps" data-id="${s.id}" data-delta="-1">−</button>
+        <span class="mini-val" data-val="reps" data-id="${s.id}">${s.reps}</span>
+        <button class="btn btn-mini" data-action="reps" data-id="${s.id}" data-delta="1">+</button>
       </div>
     </div>`;
 }
