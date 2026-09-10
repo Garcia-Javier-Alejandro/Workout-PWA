@@ -94,6 +94,56 @@ async function startNewSession() {
   render();
 }
 
+// Ensure an active session has all 15 series in the new one-page format.
+// This migrates sessions created by an older app version (which stored only the
+// completed sets plus a cursor) and repairs any session missing series, so an
+// in-progress session is never lost or left with no rows to edit. Idempotent
+// for already-well-formed sessions.
+function ensureFullSession(session, completedSessions) {
+  if (!session) return session;
+  const byKey = new Map();
+  for (const s of session.sets || []) {
+    byKey.set(`${s.exercise_id}#${s.set_number}`, s);
+  }
+  const sets = [];
+  for (const ex of window.ROUTINE) {
+    for (let n = 1; n <= ex.sets; n++) {
+      const existing = byKey.get(`${ex.id}#${n}`);
+      if (existing) {
+        sets.push({
+          id: existing.id || crypto.randomUUID(),
+          exercise_id: ex.id,
+          set_number: n,
+          reps: typeof existing.reps === "number" ? existing.reps : ex.initialReps,
+          weight: typeof existing.weight === "number" ? existing.weight : 0,
+          // A set already recorded by the old model was intentional -> touched.
+          touched: existing.touched !== undefined ? existing.touched : true,
+        });
+      } else {
+        // Seed weight from the session's own recorded sets for this exercise,
+        // else from global completed history, else 0.
+        const own = (session.sets || []).filter((s) => s.exercise_id === ex.id);
+        const seed = own.length
+          ? own[own.length - 1].weight
+          : lastWeightFor(ex.id, completedSessions);
+        sets.push({
+          id: crypto.randomUUID(),
+          exercise_id: ex.id,
+          set_number: n,
+          reps: ex.initialReps,
+          weight: seed === null || seed === undefined ? 0 : seed,
+          touched: false,
+        });
+      }
+    }
+  }
+  session.sets = sets;
+  // Drop obsolete fields from the old model if present.
+  delete session.cursor;
+  delete session.current;
+  return session;
+}
+
 // The only mechanism that closes a session. Saves all 15 series to D1.
 async function completeSession() {
   if (!active) return;
@@ -359,6 +409,14 @@ window.addEventListener("online", syncPending);
 
 (async function init() {
   active = await window.DB.getActiveSession();
+  // Migrate/repair an active session so it always has all 15 series (handles
+  // sessions created by an older app version).
+  if (active) {
+    const completed = await window.DB.getAllCompletedSessions();
+    const before = JSON.stringify(active.sets);
+    ensureFullSession(active, completed);
+    if (JSON.stringify(active.sets) !== before) await persistActive();
+  }
   render();
   // Retry any sessions that completed while offline.
   syncPending();
