@@ -3,7 +3,7 @@
 // changed on any set with the +/- buttons.
 window.ROUTINE = [
   { id: "squat", name: "Dumbbell Squat", sets: 3, initialReps: 10 },
-  { id: "rdl", name: "Dumbbell Romanian Deadlift (RDL)", sets: 3, initialReps: 10 },
+  { id: "rdl", name: "Dumbbell Romanian Deadlift", sets: 3, initialReps: 10 },
   { id: "chest_press", name: "Dumbbell Chest Press", sets: 3, initialReps: 10 },
   { id: "row", name: "One-arm Dumbbell Row", sets: 3, initialReps: 10 },
   { id: "lateral_raise", name: "Dumbbell Lateral Raise", sets: 3, initialReps: 16 },

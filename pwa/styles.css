@@ -9,8 +9,8 @@
   --muted: #7a8794;
   --primary: #7c9db3;        /* soft blue-grey, main action */
   --primary-dark: #5f7f95;
-  --complete: #d8a25e;       /* warm amber, distinct accent for completing */
-  --complete-dark: #c08a45;
+  --complete: #5aa572;       /* soft green, distinct accent for completing */
+  --complete-dark: #4c9061;
   --border: #dce3e9;
   --shadow: 0 2px 8px rgba(44, 54, 65, 0.08);
   --radius: 18px;
@@ -113,7 +113,7 @@ html, body {
 .series-head-row,
 .series-row {
   display: grid;
-  grid-template-columns: 1fr 96px 96px;
+  grid-template-columns: 1fr 112px 96px;
   align-items: center;
   gap: 6px;
 }
@@ -158,6 +158,25 @@ html, body {
   font-weight: 700;
   min-width: 32px;
   text-align: center;
+}
+
+/* Editable weight field. */
+.mini-input {
+  width: 46px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 2px;
+  -moz-appearance: textfield;
+}
+.mini-input:focus {
+  outline: none;
+  border-color: var(--primary);
 }
 
 /* Small steppers: about the height of the "Serie x/y" text. */

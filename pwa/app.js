@@ -9,6 +9,9 @@
 // action. All 15 series are saved to D1 when the user presses COMPLETAR SESIÓN.
 
 const WEIGHT_STEP = 0.5;
+// Default starting weight for a series when there is no prior history to seed
+// from. All series start at this value; the user adjusts it per series.
+const DEFAULT_WEIGHT = 10;
 
 // In-memory copy of the active session; the source of truth is IndexedDB.
 let active = null;
@@ -78,7 +81,7 @@ async function startNewSession() {
         exercise_id: ex.id,
         set_number: n,
         reps: ex.initialReps,
-        weight: lw === null ? 0 : lw,
+        weight: lw === null ? DEFAULT_WEIGHT : lw,
         touched: false,
       });
     }
@@ -131,7 +134,7 @@ function ensureFullSession(session, completedSessions) {
           exercise_id: ex.id,
           set_number: n,
           reps: ex.initialReps,
-          weight: seed === null || seed === undefined ? 0 : seed,
+          weight: seed === null || seed === undefined ? DEFAULT_WEIGHT : seed,
           touched: false,
         });
       }
@@ -182,13 +185,34 @@ async function changeWeight(id, delta) {
   updateSetDom(set);
 }
 
+// Manual weight entry: parse a single-decimal float (accepts "," or "."),
+// clamp to >= 0, and store it. Marks the series as adjusted.
+async function setWeightManual(id, raw) {
+  const set = findSet(id);
+  if (!set) return;
+  let v = parseFloat(String(raw).replace(",", "."));
+  if (isNaN(v) || v < 0) v = 0;
+  v = Math.round(v * 10) / 10; // single decimal place
+  set.weight = v;
+  set.touched = true;
+  await persistActive();
+  updateSetDom(set); // normalize the displayed value
+}
+
+function setDomValue(el, value) {
+  if (!el) return;
+  if (el.tagName === "INPUT") el.value = value;
+  else el.textContent = value;
+}
+
 // Targeted DOM update so +/- taps don't rebuild the whole list (keeps scroll
 // position and feels instant).
 function updateSetDom(set) {
-  const repsEl = appEl.querySelector(`[data-val="reps"][data-id="${set.id}"]`);
-  const weightEl = appEl.querySelector(`[data-val="weight"][data-id="${set.id}"]`);
-  if (repsEl) repsEl.textContent = set.reps;
-  if (weightEl) weightEl.textContent = formatWeight(set.weight);
+  setDomValue(appEl.querySelector(`[data-val="reps"][data-id="${set.id}"]`), set.reps);
+  setDomValue(
+    appEl.querySelector(`[data-val="weight"][data-id="${set.id}"]`),
+    formatWeight(set.weight)
+  );
   const row = appEl.querySelector(`[data-row-id="${set.id}"]`);
   if (row) row.classList.add("touched");
 }
@@ -256,7 +280,7 @@ function renderSeriesRow(ex, s) {
       <span class="series-num">Serie ${s.set_number}/${ex.sets}</span>
       <div class="mini-stepper">
         <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="-0.5">−</button>
-        <span class="mini-val" data-val="weight" data-id="${s.id}">${formatWeight(s.weight)}</span>
+        <input class="mini-input" type="text" inputmode="decimal" data-val="weight" data-id="${s.id}" value="${formatWeight(s.weight)}" aria-label="Peso en kg" />
         <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="0.5">+</button>
       </div>
       <div class="mini-stepper">
@@ -395,6 +419,21 @@ appEl.addEventListener("click", async (e) => {
       screen = "tracker";
       render();
       break;
+  }
+});
+
+// Manual weight entry commits on blur / Enter (the "change" event).
+appEl.addEventListener("change", async (e) => {
+  const input = e.target.closest('input[data-val="weight"]');
+  if (input) await setWeightManual(input.dataset.id, input.value);
+});
+
+// Pressing Enter in a weight input commits and blurs it.
+appEl.addEventListener("keydown", (e) => {
+  const input = e.target.closest('input[data-val="weight"]');
+  if (input && e.key === "Enter") {
+    e.preventDefault();
+    input.blur();
   }
 });
 

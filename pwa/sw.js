@@ -3,7 +3,7 @@
 // straight to the network (and fail gracefully offline — the session is kept
 // locally in IndexedDB and synced later).
 
-const CACHE = "workout-pwa-v4";
+const CACHE = "workout-pwa-v5";
 const ASSETS = [
   "./",
   "./index.html",
