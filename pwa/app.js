@@ -3,6 +3,10 @@
 // Core principle: the user fully controls the session lifecycle. Nothing here
 // starts, continues, ends, creates, or discards a session automatically. There
 // is no time-based or heuristic logic of any kind. The app is a recorder.
+//
+// Interaction model: when a session is active, all 15 series are shown on one
+// page and can be edited in any order with +/- steppers. There is no "next"
+// action. All 15 series are saved to D1 when the user presses COMPLETAR SESIÓN.
 
 const WEIGHT_STEP = 0.5;
 
@@ -19,10 +23,6 @@ function esc(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
-}
-
-function exerciseByIndex(i) {
-  return window.ROUTINE[i];
 }
 
 function exerciseById(id) {
@@ -42,18 +42,19 @@ function formatDate(iso) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+function touchedCount() {
+  return active ? active.sets.filter((s) => s.touched).length : 0;
+}
+
 // Last weight used for an exercise, from the global history the app has seen:
-// 1) sets already recorded in the active session,
-// 2) locally kept completed sessions (most recent first).
-// This keeps the value available offline based on what the app already knows.
-async function lastWeightFor(exerciseId) {
-  if (active && active.sets.length) {
-    const own = active.sets.filter((s) => s.exercise_id === exerciseId);
-    if (own.length) return own[own.length - 1].weight;
-  }
-  const completed = await window.DB.getAllCompletedSessions();
-  completed.sort((a, b) => (a.completed_at < b.completed_at ? 1 : -1));
-  for (const sess of completed) {
+// locally kept completed sessions (most recent first). Used to seed the initial
+// weight for each series when a new session starts, so the value is available
+// offline based on what the app already knows.
+function lastWeightFor(exerciseId, completedSessions) {
+  const sorted = completedSessions
+    .slice()
+    .sort((a, b) => (a.completed_at < b.completed_at ? 1 : -1));
+  for (const sess of sorted) {
     const matches = (sess.sets || []).filter((s) => s.exercise_id === exerciseId);
     if (matches.length) return matches[matches.length - 1].weight;
   }
@@ -67,65 +68,33 @@ async function persistActive() {
 // ---------- session lifecycle (user-driven only) ----------
 
 async function startNewSession() {
-  const firstExercise = exerciseByIndex(0);
+  const completed = await window.DB.getAllCompletedSessions();
+  const sets = [];
+  for (const ex of window.ROUTINE) {
+    const lw = lastWeightFor(ex.id, completed);
+    for (let n = 1; n <= ex.sets; n++) {
+      sets.push({
+        id: crypto.randomUUID(),
+        exercise_id: ex.id,
+        set_number: n,
+        reps: ex.initialReps,
+        weight: lw === null ? 0 : lw,
+        touched: false,
+      });
+    }
+  }
   active = {
     id: crypto.randomUUID(),
     started_at: new Date().toISOString(),
     completed_at: null,
     synced: false,
-    sets: [],
-    cursor: { exerciseIndex: 0, setNumber: 1 },
-    current: { reps: firstExercise.initialReps, weight: null },
+    sets,
   };
-  const lw = await lastWeightFor(firstExercise.id);
-  active.current.weight = lw === null ? 0 : lw;
   await persistActive();
   render();
 }
 
-// Record current set and advance to the next one (or the next exercise).
-// Advancing never completes the session, even on the 15th set.
-async function nextSet() {
-  if (!active || isAllDone()) return;
-  const ex = exerciseByIndex(active.cursor.exerciseIndex);
-  active.sets.push({
-    id: crypto.randomUUID(),
-    exercise_id: ex.id,
-    set_number: active.cursor.setNumber,
-    reps: active.current.reps,
-    weight: active.current.weight === null ? 0 : active.current.weight,
-  });
-
-  // Advance the cursor.
-  if (active.cursor.setNumber < ex.sets) {
-    active.cursor.setNumber += 1;
-  } else if (active.cursor.exerciseIndex < window.ROUTINE.length - 1) {
-    active.cursor.exerciseIndex += 1;
-    active.cursor.setNumber = 1;
-  } else {
-    // Last set of the last exercise recorded: all 15 done, session stays open.
-    active.cursor = null;
-  }
-
-  // Initialize the counters for the new current set (if any).
-  if (active.cursor) {
-    const nextEx = exerciseByIndex(active.cursor.exerciseIndex);
-    const lw = await lastWeightFor(nextEx.id);
-    active.current = {
-      reps: nextEx.initialReps,
-      weight: lw === null ? 0 : lw,
-    };
-  }
-
-  await persistActive();
-  render();
-}
-
-function isAllDone() {
-  return active && active.cursor === null;
-}
-
-// The only mechanism that closes a session.
+// The only mechanism that closes a session. Saves all 15 series to D1.
 async function completeSession() {
   if (!active) return;
   active.completed_at = new Date().toISOString();
@@ -141,81 +110,39 @@ async function completeSession() {
 
 // ---------- counter mutations ----------
 
-async function changeReps(delta) {
-  if (!active || isAllDone()) return;
-  active.current.reps = Math.max(0, active.current.reps + delta);
-  await persistActive();
-  render();
+function findSet(id) {
+  return active && active.sets.find((s) => s.id === id);
 }
 
-async function changeWeight(delta) {
-  if (!active || isAllDone()) return;
-  const w = active.current.weight === null ? 0 : active.current.weight;
-  active.current.weight = Math.max(0, Math.round((w + delta) * 2) / 2);
-  await persistActive();
-  render();
-}
-
-// ---------- editing already-recorded sets (active session only) ----------
-
-let editingSetId = null;
-let editDraft = null;
-
-function openEdit(setId) {
-  const set = active.sets.find((s) => s.id === setId);
+async function changeReps(id, delta) {
+  const set = findSet(id);
   if (!set) return;
-  editingSetId = setId;
-  editDraft = { reps: set.reps, weight: set.weight };
-  render();
+  set.reps = Math.max(0, set.reps + delta);
+  set.touched = true;
+  await persistActive();
+  updateSetDom(set);
 }
 
-function closeEdit() {
-  editingSetId = null;
-  editDraft = null;
-  render();
+async function changeWeight(id, delta) {
+  const set = findSet(id);
+  if (!set) return;
+  set.weight = Math.max(0, Math.round((set.weight + delta) * 2) / 2);
+  set.touched = true;
+  await persistActive();
+  updateSetDom(set);
 }
 
-function editChangeReps(delta) {
-  editDraft.reps = Math.max(0, editDraft.reps + delta);
-  render();
-}
-
-function editChangeWeight(delta) {
-  editDraft.weight = Math.max(0, Math.round((editDraft.weight + delta) * 2) / 2);
-  render();
-}
-
-async function saveEdit() {
-  const set = active.sets.find((s) => s.id === editingSetId);
-  if (set) {
-    set.reps = editDraft.reps;
-    set.weight = editDraft.weight;
-    await persistActive();
-  }
-  closeEdit();
-}
-
-// ---------- sync ----------
-
-let syncing = false;
-
-async function syncPending() {
-  if (syncing || !navigator.onLine) return;
-  syncing = true;
-  try {
-    const pending = await window.DB.getUnsyncedSessions();
-    for (const sess of pending) {
-      try {
-        await window.API.postSession(sess);
-        await window.DB.markSynced(sess.id);
-      } catch (_) {
-        // Leave queued; will retry on next opportunity.
-      }
-    }
-  } finally {
-    syncing = false;
-    if (screen === "history") renderHistory();
-  }
+// Targeted DOM update so +/- taps don't rebuild the whole list (keeps scroll
+// position and feels instant).
+function updateSetDom(set) {
+  const repsEl = appEl.querySelector(`[data-val="reps"][data-id="${set.id}"]`);
+  const weightEl = appEl.querySelector(`[data-val="weight"][data-id="${set.id}"]`);
+  if (repsEl) repsEl.textContent = set.reps;
+  if (weightEl) weightEl.textContent = formatWeight(set.weight);
+  const row = appEl.querySelector(`[data-row-id="${set.id}"]`);
+  if (row) row.classList.add("touched");
+  const prog = appEl.querySelector("#progress-count");
+  if (prog) prog.textContent = `${touchedCount()}/${window.TOTAL_SETS}`;
 }
 
 // ---------- rendering ----------
@@ -246,48 +173,8 @@ function renderNoSession() {
 }
 
 function renderTracker() {
-  const done = active.sets.length;
   const total = window.TOTAL_SETS;
-
-  let currentBlock;
-  let nextInfo;
-
-  if (isAllDone()) {
-    currentBlock = `
-      <section class="card current all-done">
-        <p class="all-done-title">Todas las series completadas 🎉</p>
-        <p class="hint">La sesión sigue abierta. Presioná <strong>COMPLETAR SESIÓN</strong> cuando quieras cerrarla.</p>
-      </section>`;
-    nextInfo = "";
-  } else {
-    const ex = exerciseByIndex(active.cursor.exerciseIndex);
-    currentBlock = `
-      <section class="card current">
-        <p class="exercise-name">${esc(ex.name)}</p>
-        <p class="set-label">Serie ${active.cursor.setNumber}/${ex.sets}</p>
-
-        <div class="control">
-          <span class="control-label">Peso (kg)</span>
-          <div class="stepper">
-            <button class="btn btn-round" data-action="weight" data-delta="-0.5">−</button>
-            <span class="value">${formatWeight(active.current.weight)}</span>
-            <button class="btn btn-round" data-action="weight" data-delta="0.5">+</button>
-          </div>
-        </div>
-
-        <div class="control">
-          <span class="control-label">Repeticiones</span>
-          <div class="stepper">
-            <button class="btn btn-round" data-action="reps" data-delta="-1">−</button>
-            <span class="value">${active.current.reps}</span>
-            <button class="btn btn-round" data-action="reps" data-delta="1">+</button>
-          </div>
-        </div>
-
-        <button class="btn btn-primary btn-next" data-action="next">SIGUIENTE →</button>
-      </section>`;
-    nextInfo = renderNextInfo();
-  }
+  const exercisesHtml = window.ROUTINE.map(renderExerciseBlock).join("");
 
   appEl.innerHTML = `
     <header class="topbar">
@@ -295,83 +182,41 @@ function renderTracker() {
       <button class="link-btn" data-action="go-history">Historial</button>
     </header>
     <main class="screen">
-      <div class="progress">Progreso: <strong>${done}/${total}</strong> series</div>
-      ${currentBlock}
-      ${nextInfo}
-      ${renderRecordedSets()}
+      <div class="progress">Registradas: <strong><span id="progress-count">${touchedCount()}/${total}</span></strong> series</div>
+      ${exercisesHtml}
       <button class="btn btn-complete" data-action="complete">COMPLETAR SESIÓN</button>
     </main>
-    ${editingSetId ? renderEditModal() : ""}
   `;
 }
 
-function renderNextInfo() {
-  const c = active.cursor;
-  const ex = exerciseByIndex(c.exerciseIndex);
-  let text;
-  if (c.setNumber < ex.sets) {
-    text = `${ex.name} — Serie ${c.setNumber + 1}/${ex.sets}`;
-  } else if (c.exerciseIndex < window.ROUTINE.length - 1) {
-    const nextEx = exerciseByIndex(c.exerciseIndex + 1);
-    text = `${nextEx.name} — Serie 1/${nextEx.sets}`;
-  } else {
-    text = "Última serie";
-  }
-  return `<div class="next-info">Después: <span>${esc(text)}</span></div>`;
-}
-
-function renderRecordedSets() {
-  if (!active.sets.length) return "";
-  const rows = active.sets
-    .map((s) => {
-      const ex = exerciseById(s.exercise_id);
-      return `
-        <li class="recorded-row">
-          <span class="recorded-text">
-            <strong>${esc(ex.name)}</strong> · Serie ${s.set_number}
-            · ${formatWeight(s.weight)} kg · ${s.reps} reps
-          </span>
-          <button class="icon-btn" data-action="edit" data-id="${s.id}" aria-label="Editar serie">✎</button>
-        </li>`;
-    })
-    .join("");
+function renderExerciseBlock(ex) {
+  const sets = active.sets.filter((s) => s.exercise_id === ex.id);
+  const rows = sets.map((s) => renderSeriesRow(ex, s)).join("");
   return `
-    <section class="card recorded">
-      <h2>Series registradas</h2>
-      <ul class="recorded-list">${rows}</ul>
+    <section class="card exercise-block">
+      <h2 class="exercise-name">${esc(ex.name)}</h2>
+      ${rows}
     </section>`;
 }
 
-function renderEditModal() {
-  const set = active.sets.find((s) => s.id === editingSetId);
-  const ex = exerciseById(set.exercise_id);
+function renderSeriesRow(ex, s) {
   return `
-    <div class="modal-backdrop" data-action="close-edit-backdrop">
-      <div class="modal" role="dialog" aria-modal="true">
-        <h2>Editar serie</h2>
-        <p class="modal-sub">${esc(ex.name)} · Serie ${set.set_number}</p>
-
-        <div class="control">
-          <span class="control-label">Peso (kg)</span>
-          <div class="stepper">
-            <button class="btn btn-round" data-action="edit-weight" data-delta="-0.5">−</button>
-            <span class="value">${formatWeight(editDraft.weight)}</span>
-            <button class="btn btn-round" data-action="edit-weight" data-delta="0.5">+</button>
-          </div>
+    <div class="series-row${s.touched ? " touched" : ""}" data-row-id="${s.id}">
+      <span class="series-num">Serie ${s.set_number}/${ex.sets}</span>
+      <div class="mini">
+        <span class="mini-label">Peso (kg)</span>
+        <div class="mini-stepper">
+          <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="-0.5">−</button>
+          <span class="mini-val" data-val="weight" data-id="${s.id}">${formatWeight(s.weight)}</span>
+          <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="0.5">+</button>
         </div>
-
-        <div class="control">
-          <span class="control-label">Repeticiones</span>
-          <div class="stepper">
-            <button class="btn btn-round" data-action="edit-reps" data-delta="-1">−</button>
-            <span class="value">${editDraft.reps}</span>
-            <button class="btn btn-round" data-action="edit-reps" data-delta="1">+</button>
-          </div>
-        </div>
-
-        <div class="modal-actions">
-          <button class="btn btn-secondary" data-action="cancel-edit">Cancelar</button>
-          <button class="btn btn-primary" data-action="save-edit">Guardar</button>
+      </div>
+      <div class="mini">
+        <span class="mini-label">Reps</span>
+        <div class="mini-stepper">
+          <button class="btn btn-mini" data-action="reps" data-id="${s.id}" data-delta="-1">−</button>
+          <span class="mini-val" data-val="reps" data-id="${s.id}">${s.reps}</span>
+          <button class="btn btn-mini" data-action="reps" data-id="${s.id}" data-delta="1">+</button>
         </div>
       </div>
     </div>`;
@@ -452,6 +297,29 @@ function renderHistorySession(sess) {
     </section>`;
 }
 
+// ---------- sync ----------
+
+let syncing = false;
+
+async function syncPending() {
+  if (syncing || !navigator.onLine) return;
+  syncing = true;
+  try {
+    const pending = await window.DB.getUnsyncedSessions();
+    for (const sess of pending) {
+      try {
+        await window.API.postSession(sess);
+        await window.DB.markSynced(sess.id);
+      } catch (_) {
+        // Leave queued; will retry on next opportunity.
+      }
+    }
+  } finally {
+    syncing = false;
+    if (screen === "history") renderHistory();
+  }
+}
+
 // ---------- event handling (delegated) ----------
 
 appEl.addEventListener("click", async (e) => {
@@ -463,35 +331,16 @@ appEl.addEventListener("click", async (e) => {
     case "new-session":
       await startNewSession();
       break;
-    case "next":
-      await nextSet();
-      break;
     case "reps":
-      await changeReps(Number(btn.dataset.delta));
+      await changeReps(btn.dataset.id, Number(btn.dataset.delta));
       break;
     case "weight":
-      await changeWeight(Number(btn.dataset.delta));
+      await changeWeight(btn.dataset.id, Number(btn.dataset.delta));
       break;
     case "complete":
-      if (confirm("¿Completar y cerrar esta sesión?")) await completeSession();
-      break;
-    case "edit":
-      openEdit(btn.dataset.id);
-      break;
-    case "edit-reps":
-      editChangeReps(Number(btn.dataset.delta));
-      break;
-    case "edit-weight":
-      editChangeWeight(Number(btn.dataset.delta));
-      break;
-    case "save-edit":
-      await saveEdit();
-      break;
-    case "cancel-edit":
-      closeEdit();
-      break;
-    case "close-edit-backdrop":
-      if (e.target === btn) closeEdit();
+      if (confirm("¿Completar y cerrar esta sesión? Se guardarán las 15 series.")) {
+        await completeSession();
+      }
       break;
     case "go-history":
       screen = "history";

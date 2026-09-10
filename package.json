@@ -1,0 +1,9 @@
+{
+  "name": "workout-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simple dumbbell-workout tracker PWA (Cloudflare Pages + Worker + D1).",
+  "scripts": {
+    "build": "node scripts/gen-config.js"
+  }
+}

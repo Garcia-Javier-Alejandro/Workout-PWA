@@ -99,44 +99,79 @@ html, body {
 }
 .progress strong { color: var(--text); }
 
-/* ---------- current set (most prominent) ---------- */
+/* ---------- exercise blocks + series rows ---------- */
 
-.current { text-align: center; }
+.exercise-block { padding: 16px 18px; }
 
 .exercise-name {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  margin: 0 0 4px;
+  margin: 0 0 12px;
 }
 
-.set-label {
-  font-size: 1.1rem;
-  color: var(--muted);
-  margin: 0 0 18px;
+.series-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  transition: background 0.15s ease;
+}
+.series-row:first-of-type { border-top: none; }
+
+/* Series the user has adjusted get a soft highlight + check. */
+.series-row.touched { position: relative; }
+.series-row.touched .series-num::after {
+  content: " ✓";
+  color: var(--primary-dark);
+  font-weight: 700;
 }
 
-.control { margin: 18px 0; }
+.series-num {
+  flex: 1 0 100%;
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.95rem;
+}
 
-.control-label {
-  display: block;
-  font-size: 0.9rem;
+.mini {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+}
+
+.mini-label {
+  font-size: 0.72rem;
   color: var(--muted);
-  margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
-.stepper {
+.mini-stepper {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 22px;
+  gap: 12px;
 }
 
-.stepper .value {
-  font-size: 2.4rem;
+.mini-val {
+  font-size: 1.5rem;
   font-weight: 700;
-  min-width: 90px;
+  min-width: 52px;
+  text-align: center;
+}
+
+.btn-mini {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-size: 1.5rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  line-height: 1;
 }
 
 /* ---------- buttons ---------- */
@@ -181,13 +216,6 @@ html, body {
   max-width: 340px;
 }
 
-.btn-next {
-  width: 100%;
-  font-size: 1.35rem;
-  padding: 20px;
-  margin-top: 8px;
-}
-
 /* COMPLETAR SESIÓN: separated, distinct accent to avoid accidental taps. */
 .btn-complete {
   background: var(--complete);
@@ -196,101 +224,10 @@ html, body {
   padding: 18px;
   width: 100%;
   margin-top: 24px;
+  position: sticky;
+  bottom: 12px;
 }
 .btn-complete:active { background: var(--complete-dark); }
-
-/* ---------- next info ---------- */
-
-.next-info {
-  text-align: center;
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-.next-info span { color: var(--text); font-weight: 600; }
-
-/* ---------- all done ---------- */
-
-.all-done-title {
-  font-size: 1.3rem;
-  font-weight: 700;
-  margin: 0 0 10px;
-}
-
-/* ---------- recorded sets ---------- */
-
-.recorded h2 {
-  font-size: 1rem;
-  margin: 0 0 12px;
-  color: var(--muted);
-}
-
-.recorded-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.recorded-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--bg);
-  border-radius: 12px;
-}
-
-.recorded-text { font-size: 0.9rem; }
-
-.icon-btn {
-  flex-shrink: 0;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  font-size: 1.1rem;
-  cursor: pointer;
-}
-
-/* ---------- modal ---------- */
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(44, 54, 65, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 20;
-}
-
-.modal {
-  background: var(--surface);
-  border-radius: var(--radius);
-  padding: 24px;
-  width: 100%;
-  max-width: 380px;
-  text-align: center;
-}
-
-.modal h2 { margin: 0 0 4px; font-size: 1.2rem; }
-.modal-sub { color: var(--muted); margin: 0 0 8px; }
-
-.modal-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 22px;
-}
-.modal-actions .btn {
-  flex: 1;
-  padding: 16px;
-  font-size: 1rem;
-}
 
 /* ---------- history ---------- */
 

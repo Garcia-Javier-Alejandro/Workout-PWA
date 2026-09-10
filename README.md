@@ -7,6 +7,17 @@ The app is a **recorder**, not a coach: the user fully controls the session
 lifecycle. Nothing starts, ends, or discards a session automatically, and there
 are no timers of any kind.
 
+## Usage
+
+- **NUEVA SESIÓN** creates a session with all 15 series (5 exercises × 3)
+  visible on a single page. Each series' weight is seeded from the last weight
+  used for that exercise; reps from the routine's initial value.
+- Adjust weight (0.5 kg steps) and reps for any series, in any order, with the
+  `+` / `−` steppers. There is no "next" action.
+- **COMPLETAR SESIÓN** is the only thing that closes a session: it saves all 15
+  series to D1 and moves the session to history. The active session survives
+  closing the browser, reboots, and any amount of time.
+
 ## Architecture
 
 ```
@@ -86,15 +97,29 @@ Note the deployed URL, e.g. `https://workout-pwa-api.<subdomain>.workers.dev`.
 
 ## 5. Deploy the PWA to Cloudflare Pages
 
-The PWA is static; the project root for Pages is the `pwa/` directory.
+The PWA is static. `pwa/config.js` (Worker URL + shared secret) is **gitignored**,
+so for Git-connected deploys it is generated at build time from environment
+variables by `scripts/gen-config.js`.
 
-- **Via dashboard:** Cloudflare → Workers & Pages → Create → Pages → connect the
-  GitHub repo, set the **build output / root directory** to `pwa` and leave the
-  build command empty (no build step).
-- **Via CLI:**
-  ```bash
-  wrangler pages deploy pwa --project-name workout-pwa
-  ```
+**Option A — Git integration (auto-deploy on push):**
+
+Cloudflare → Workers & Pages → Create → Pages → **Connect to Git** → select this
+repo, then set:
+
+- **Build command:** `node scripts/gen-config.js`
+- **Build output directory:** `pwa`
+- **Environment variables:**
+  - `API_BASE` = `https://workout-pwa-api.<subdomain>.workers.dev`
+  - `APP_KEY` = the same secret you set in step 3
+
+Every push to `main` then rebuilds and deploys automatically.
+
+**Option B — Direct upload via CLI:**
+
+```bash
+cp pwa/config.example.js pwa/config.js   # then edit it (see step 6)
+wrangler pages deploy pwa --project-name workout-pwa --branch main
+```
 
 ## 6. Point the PWA at the Worker
 
