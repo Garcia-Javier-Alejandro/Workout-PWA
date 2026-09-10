@@ -1,0 +1,14 @@
+name = "workout-pwa-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Cloudflare D1 binding. Fill in database_id after creating the D1 database:
+#   wrangler d1 create workout-pwa
+# then copy the printed database_id here.
+[[d1_databases]]
+binding = "DB"
+database_name = "workout-pwa"
+database_id = "824344e7-dcba-4ce6-acb2-5244fc136936"
+
+# APP_KEY is a Worker Secret, not committed here. Set it with:
+#   wrangler secret put APP_KEY

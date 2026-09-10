@@ -1,0 +1,9 @@
+# Local runtime config holds the shared secret; keep it out of the repo.
+pwa/config.js
+
+node_modules/
+.wrangler/
+.dev.vars
+dist/
+*.log
+.DS_Store

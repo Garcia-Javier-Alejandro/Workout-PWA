@@ -1,0 +1,19 @@
+{
+  "name": "Entrenamiento",
+  "short_name": "Entreno",
+  "description": "Registro simple de rutina de entrenamiento con mancuernas.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef2f5",
+  "theme_color": "#7c9db3",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
