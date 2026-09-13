@@ -3,7 +3,7 @@
 // straight to the network (and fail gracefully offline — the session is kept
 // locally in IndexedDB and synced later).
 
-const CACHE = "workout-pwa-v7";
+const CACHE = "workout-pwa-v8";
 const ASSETS = [
   "./",
   "./index.html",
@@ -15,6 +15,8 @@ const ASSETS = [
   "./app.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {

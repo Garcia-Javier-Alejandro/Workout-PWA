@@ -109,13 +109,14 @@ html, body {
   margin: 0 0 8px;
 }
 
-/* Header row + series rows share one grid so Peso/Reps line up as columns. */
+/* Header row + series rows share one grid so Peso/Reps line up as columns.
+   Columns: label | weight stepper | reps stepper | finish | trash. */
 .series-head-row,
 .series-row {
   display: grid;
-  grid-template-columns: 1fr 108px 92px 28px;
+  grid-template-columns: 1fr 92px 80px 24px 24px;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .series-head-row { padding-bottom: 4px; }
@@ -129,41 +130,49 @@ html, body {
 }
 
 .series-row {
-  padding: 6px 0;
+  padding: 6px 2px;
   border-top: 1px solid var(--border);
+  border-radius: 8px;
+  transition: background 0.15s ease;
 }
 
-/* Series the user has adjusted get a check next to the label. */
-.series-row.touched .series-num::after {
-  content: " ✓";
-  color: var(--primary-dark);
-  font-weight: 700;
+/* A finished series is tinted green and its editors are locked. */
+.series-row.finished {
+  background: rgba(90, 165, 114, 0.16);
+}
+.series-row.finished .mini-input {
+  background: transparent;
+  border-color: transparent;
+}
+.series-row.finished .btn-mini,
+.series-row.finished .mini-input:disabled {
+  opacity: 0.5;
 }
 
 .series-num {
   font-weight: 600;
   color: var(--text);
-  font-size: 1rem;
+  font-size: 0.92rem;
 }
 
 .mini-stepper {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .mini-val {
-  font-size: 1.05rem;
+  font-size: 1.02rem;
   font-weight: 700;
-  min-width: 32px;
+  min-width: 26px;
   text-align: center;
 }
 
 /* Editable weight field. */
 .mini-input {
-  width: 46px;
-  font-size: 1.05rem;
+  width: 38px;
+  font-size: 1.02rem;
   font-weight: 700;
   text-align: center;
   font-family: inherit;
@@ -179,9 +188,10 @@ html, body {
   border-color: var(--primary);
 }
 
-/* Trashcan to remove a series. */
+/* Finish / trashcan icon buttons at the end of a series row. */
+.icon-btn-finish,
 .icon-btn-trash {
-  width: 26px;
+  width: 24px;
   height: 26px;
   display: flex;
   align-items: center;
@@ -197,6 +207,15 @@ html, body {
 .icon-btn-trash:active {
   background: var(--bg);
   color: #c0574e;
+}
+.icon-btn-finish:active {
+  background: var(--bg);
+  color: var(--complete);
+}
+/* When the series is finished, the check reads as active (green + filled). */
+.icon-btn-finish.active {
+  color: #fff;
+  background: var(--complete);
 }
 
 /* "Add another series" button, subtle, at the end of each exercise block. */
@@ -215,10 +234,10 @@ html, body {
 
 /* Small steppers: about the height of the "Serie x/y" text. */
 .btn-mini {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  font-size: 1rem;
+  font-size: 0.95rem;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -306,3 +325,46 @@ html, body {
 
 .hist-ex-name { font-weight: 600; }
 .hist-ex-data { color: var(--muted); font-size: 0.95rem; }
+
+/* ---------- past-workout swipe view (read-only) ---------- */
+
+.past-hint {
+  text-align: center;
+  margin: 0;
+}
+
+.past-ex {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.past-ex:first-child { border-top: none; padding-top: 0; }
+
+.past-ex-name {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.past-series {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.95rem;
+  padding: 2px 0;
+}
+.past-series span:last-child {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------- swipe navigation slide-in ---------- */
+
+@keyframes slide-from-left {
+  from { transform: translateX(-24px); opacity: 0.35; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+@keyframes slide-from-right {
+  from { transform: translateX(24px); opacity: 0.35; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.screen.slide-from-left { animation: slide-from-left 0.18s ease-out; }
+.screen.slide-from-right { animation: slide-from-right 0.18s ease-out; }
