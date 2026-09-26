@@ -17,6 +17,10 @@ are no timers of any kind.
 - **COMPLETAR SESIÓN** is the only thing that closes a session: it saves all 15
   series to D1 and moves the session to history. The active session survives
   closing the browser, reboots, and any amount of time.
+- **Exportar CSV** (in Historial) downloads the full history as a CSV with one
+  row per series: `session_id, started_at, completed_at, date, exercise_id,
+  exercise_name, set_number, reps, weight_kg`. Uses D1 when reachable, else the
+  local copy.
 
 ## Architecture
 

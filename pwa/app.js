@@ -507,7 +507,7 @@ async function renderHistory() {
     <header class="topbar">
       <button class="link-btn" data-action="go-tracker">← Volver</button>
       <h1>Historial</h1>
-      <span></span>
+      <button class="link-btn" data-action="export-csv">Exportar CSV</button>
     </header>
     <main class="screen${slideClass()}">
       <div class="history-status" id="history-status">Cargando…</div>
@@ -577,6 +577,56 @@ function renderHistorySession(sess) {
     </section>`;
 }
 
+// ---------- export ----------
+
+function csvCell(v) {
+  const str = v === null || v === undefined ? "" : String(v);
+  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+// Download the full history as a CSV with one row per series (long format),
+// ready for spreadsheets or pandas. Reads D1 when reachable, else local data.
+async function exportCsv() {
+  let sessions;
+  try {
+    sessions = await window.API.getSessions();
+  } catch (_) {
+    sessions = await window.DB.getAllCompletedSessions();
+  }
+  sessions = [...sessions].sort((a, b) => (a.completed_at < b.completed_at ? -1 : 1));
+
+  const header = [
+    "session_id", "started_at", "completed_at", "date",
+    "exercise_id", "exercise_name", "set_number", "reps", "weight_kg",
+  ];
+  const rows = [header];
+  for (const sess of sessions) {
+    const sets = [...(sess.sets || [])].sort((a, b) => {
+      const ia = window.ROUTINE.findIndex((e) => e.id === a.exercise_id);
+      const ib = window.ROUTINE.findIndex((e) => e.id === b.exercise_id);
+      return ia - ib || a.set_number - b.set_number;
+    });
+    for (const s of sets) {
+      const ex = exerciseById(s.exercise_id);
+      rows.push([
+        sess.id, sess.started_at, sess.completed_at, sess.completed_at.slice(0, 10),
+        s.exercise_id, ex ? ex.name : s.exercise_id, s.set_number, s.reps, s.weight,
+      ]);
+    }
+  }
+
+  const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `workout-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // ---------- sync ----------
 
 let syncing = false;
@@ -635,6 +685,9 @@ appEl.addEventListener("click", async (e) => {
       lastNavDir = -1;
       currentPanel = "history";
       render();
+      break;
+    case "export-csv":
+      await exportCsv();
       break;
     case "go-tracker":
       lastNavDir = 1;
