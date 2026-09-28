@@ -103,10 +103,90 @@ html, body {
 
 .exercise-block { padding: 14px 16px; }
 
+/* Prominent Push / Pull / Full Body banner at the top of the tracker. */
+.workout-banner {
+  background: var(--primary);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  font-size: 1.3rem;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.02em;
+  box-shadow: var(--shadow);
+}
+
+.exercise-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .exercise-name {
   font-size: 1.15rem;
   font-weight: 700;
-  margin: 0 0 8px;
+  margin: 0;
+}
+
+/* Main-lift vs accessory tag. */
+.ex-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.ex-badge-main {
+  color: #fff;
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
+/* 5/3/1 week/cycle/TM line, or the accessory rep-range target. */
+.ex-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 6px 0 10px;
+}
+.tm-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tm-input {
+  width: 52px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 4px;
+  -moz-appearance: textfield;
+}
+.tm-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* The 5/3/1 prescription (e.g. 65%×5) shown inside a main-lift series label. */
+.set-target {
+  color: var(--primary-dark);
+  font-weight: 700;
 }
 
 /* Header row + series rows share one grid so Peso/Reps line up as columns.

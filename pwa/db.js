@@ -63,6 +63,22 @@ const DB = {
     db.close();
   },
 
+  // Program progression state (which workout is next, and each main lift's
+  // Training Max / 5/3/1 week / cycle). Lives alongside the active session in
+  // the kv store and only changes when the user completes a workout.
+  async getProgram() {
+    const db = await openDB();
+    const result = await reqToPromise(tx(db, "kv", "readonly").get("program"));
+    db.close();
+    return result || null;
+  },
+
+  async setProgram(program) {
+    const db = await openDB();
+    await reqToPromise(tx(db, "kv", "readwrite").put(program, "program"));
+    db.close();
+  },
+
   async saveCompletedSession(session) {
     const db = await openDB();
     await reqToPromise(tx(db, "sessions", "readwrite").put(session));

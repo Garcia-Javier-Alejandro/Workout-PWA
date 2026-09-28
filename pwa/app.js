@@ -21,6 +21,9 @@ const MAX_PAST_PANELS = 3;
 
 // In-memory copy of the active session; the source of truth is IndexedDB.
 let active = null;
+// In-memory copy of the program progression state (next workout + each main
+// lift's TM / 5/3/1 week / cycle). Source of truth is IndexedDB.
+let program = null;
 // Which panel is on screen: "tracker" | "history" | "past-0" | "past-1" | ...
 // (past-0 is the most recent completed workout).
 let currentPanel = "tracker";
@@ -40,8 +43,55 @@ function esc(str) {
   }[c]));
 }
 
-function exerciseById(id) {
-  return window.ROUTINE.find((e) => e.id === id);
+function exerciseName(id) {
+  return (window.EXERCISES && window.EXERCISES[id]) || id;
+}
+
+function workoutDef(type) {
+  return window.WORKOUTS[type];
+}
+
+function mainLiftFor(type) {
+  return window.MAIN_LIFTS[type];
+}
+
+function successorWorkout(type) {
+  const seq = window.SEQUENCE;
+  const i = seq.indexOf(type);
+  return seq[(i + 1) % seq.length];
+}
+
+function roundToHalf(x) {
+  return Math.round(x * 2) / 2;
+}
+
+// The three 5/3/1 working sets for a lift at a given week/TM.
+function computeMainSets(week, tm) {
+  const scheme = window.FIVE_THREE_ONE[week] || window.FIVE_THREE_ONE[1];
+  return scheme.map((s) => ({
+    pct: s.pct,
+    reps: s.reps,
+    weight: roundToHalf(tm * s.pct),
+  }));
+}
+
+function defaultProgram() {
+  const lifts = {};
+  for (const type of window.SEQUENCE) {
+    const m = mainLiftFor(type);
+    lifts[m.id] = { tm: m.defaultTM, week: 1, cycle: 1 };
+  }
+  return { nextWorkout: window.SEQUENCE[0], lifts };
+}
+
+// Fill in any missing pieces of a stored program (e.g. after a config change),
+// without touching progression the user has already accumulated.
+function migrateProgram(p) {
+  const d = defaultProgram();
+  if (!p.lifts) p.lifts = {};
+  for (const id in d.lifts) if (!p.lifts[id]) p.lifts[id] = d.lifts[id];
+  if (!window.SEQUENCE.includes(p.nextWorkout)) p.nextWorkout = window.SEQUENCE[0];
+  return p;
 }
 
 function formatWeight(w) {
@@ -80,30 +130,59 @@ async function persistActive() {
 
 // ---------- session lifecycle (user-driven only) ----------
 
-async function startNewSession() {
+// Build the pending session for a given workout type. The main lift's series
+// carry the prescribed 5/3/1 weight and target reps for the lift's current
+// week; accessories seed weight/reps from the last time that exercise was done
+// (double progression), falling back to the routine defaults. This only creates
+// the session — it never advances any progression.
+async function startNewSession(workoutType) {
   const completed = await window.DB.getAllCompletedSessions();
+  const def = workoutDef(workoutType);
+  const main = mainLiftFor(workoutType);
+  const liftState = program.lifts[main.id];
+  const mainSets = computeMainSets(liftState.week, liftState.tm);
+
   const sets = [];
-  for (const ex of window.ROUTINE) {
-    const prev = lastSetFor(ex.id, completed);
-    for (let n = 1; n <= ex.sets; n++) {
-      sets.push({
-        id: crypto.randomUUID(),
-        exercise_id: ex.id,
-        set_number: n,
-        // Seed both weight and reps from the last workout for this exercise,
-        // falling back to the routine defaults when there is no history.
-        reps: prev ? prev.reps : ex.initialReps,
-        weight: prev ? prev.weight : DEFAULT_WEIGHT,
-        touched: false,
-        finished: false,
+  for (const ex of def.exercises) {
+    if (ex.main) {
+      mainSets.forEach((ms, i) => {
+        sets.push({
+          id: crypto.randomUUID(),
+          exercise_id: ex.id,
+          set_number: i + 1,
+          reps: ms.reps,
+          weight: ms.weight,
+          touched: false,
+          finished: false,
+          // Prescription metadata for display; ignored on sync to D1.
+          pct: ms.pct,
+          targetReps: ms.reps,
+        });
       });
+    } else {
+      const prev = lastSetFor(ex.id, completed);
+      for (let n = 1; n <= ex.sets; n++) {
+        sets.push({
+          id: crypto.randomUUID(),
+          exercise_id: ex.id,
+          set_number: n,
+          reps: prev ? prev.reps : ex.repRange[0],
+          weight: prev ? prev.weight : DEFAULT_WEIGHT,
+          touched: false,
+          finished: false,
+        });
+      }
     }
   }
+
   active = {
     id: crypto.randomUUID(),
     started_at: new Date().toISOString(),
     completed_at: null,
     synced: false,
+    workout: workoutType,
+    // Snapshot of the main lift's state as prescribed for this session.
+    mainLift: { id: main.id, week: liftState.week, cycle: liftState.cycle, tm: liftState.tm },
     sets,
   };
   currentPanel = "tracker";
@@ -111,58 +190,50 @@ async function startNewSession() {
   render();
 }
 
-// Ensure an active session has at least the routine's base series per exercise
-// in the new one-page format, while preserving any extra series the user added.
-// This migrates sessions created by an older app version (which stored only the
-// completed sets plus a cursor) and repairs any session missing series, so an
-// in-progress session is never lost or left with no rows to edit. Idempotent
-// for already-well-formed sessions.
+// Defensive repair for a new-format active session: make sure every exercise of
+// its workout has at least its base series, without touching series the user has
+// already recorded or any extra series they added. A legacy session (no
+// `workout`) is handled separately at init and never reaches here.
 function ensureFullSession(session, completedSessions) {
-  if (!session) return session;
-  const byKey = new Map();
-  for (const s of session.sets || []) {
-    byKey.set(`${s.exercise_id}#${s.set_number}`, s);
-  }
-  const sets = [];
-  for (const ex of window.ROUTINE) {
+  if (!session || !session.workout) return session;
+  const def = workoutDef(session.workout);
+  if (!def) return session;
+  const snap = session.mainLift;
+  const mainSets = snap ? computeMainSets(snap.week, snap.tm) : [];
+
+  for (const ex of def.exercises) {
     const own = (session.sets || []).filter((s) => s.exercise_id === ex.id);
-    // Cover the base series (1..ex.sets) plus any higher set_numbers the user
-    // added, without filling gaps in the extra range.
-    const maxN = Math.max(ex.sets, ...own.map((s) => s.set_number), 0);
-    for (let n = 1; n <= maxN; n++) {
-      const existing = byKey.get(`${ex.id}#${n}`);
-      if (existing) {
-        sets.push({
-          id: existing.id || crypto.randomUUID(),
-          exercise_id: ex.id,
-          set_number: n,
-          reps: typeof existing.reps === "number" ? existing.reps : ex.initialReps,
-          weight: typeof existing.weight === "number" ? existing.weight : DEFAULT_WEIGHT,
-          // A set already recorded by the old model was intentional -> touched.
-          touched: existing.touched !== undefined ? existing.touched : true,
-          finished: existing.finished === true,
-        });
-      } else if (n <= ex.sets) {
-        // A missing base series: seed weight/reps from the session's own
-        // recorded sets for this exercise, else from global completed history,
-        // else the defaults.
-        const ownSeed = own.length ? own[own.length - 1] : null;
-        const histSeed = ownSeed ? null : lastSetFor(ex.id, completedSessions);
-        const seed = ownSeed || histSeed;
-        sets.push({
+    const have = new Set(own.map((s) => s.set_number));
+    const baseCount = ex.main ? mainSets.length : ex.sets;
+    for (let n = 1; n <= baseCount; n++) {
+      if (have.has(n)) continue;
+      if (ex.main) {
+        const ms = mainSets[n - 1];
+        session.sets.push({
           id: crypto.randomUUID(),
           exercise_id: ex.id,
           set_number: n,
-          reps: seed && typeof seed.reps === "number" ? seed.reps : ex.initialReps,
+          reps: ms ? ms.reps : 5,
+          weight: ms ? ms.weight : 0,
+          touched: false,
+          finished: false,
+          pct: ms ? ms.pct : null,
+          targetReps: ms ? ms.reps : null,
+        });
+      } else {
+        const seed = own.length ? own[own.length - 1] : lastSetFor(ex.id, completedSessions);
+        session.sets.push({
+          id: crypto.randomUUID(),
+          exercise_id: ex.id,
+          set_number: n,
+          reps: seed && typeof seed.reps === "number" ? seed.reps : ex.repRange[0],
           weight: seed && typeof seed.weight === "number" ? seed.weight : DEFAULT_WEIGHT,
           touched: false,
           finished: false,
         });
       }
-      // n > ex.sets with no existing set: skip (do not fabricate extra series).
     }
   }
-  session.sets = sets;
   // Drop obsolete fields from the old model if present.
   delete session.cursor;
   delete session.current;
@@ -174,17 +245,17 @@ function ensureFullSession(session, completedSessions) {
 // with history: it is just another set row.
 async function addSeries(exerciseId) {
   if (!active) return;
-  const ex = exerciseById(exerciseId);
-  if (!ex) return;
   const exSets = active.sets
     .filter((s) => s.exercise_id === exerciseId)
     .sort((a, b) => a.set_number - b.set_number);
   const last = exSets[exSets.length - 1];
+  // Extra series are always plain (no 5/3/1 prescription), seeded from the last
+  // series of this exercise, or the routine defaults if somehow none exist.
   active.sets.push({
     id: crypto.randomUUID(),
     exercise_id: exerciseId,
     set_number: last ? last.set_number + 1 : 1,
-    reps: last ? last.reps : ex.initialReps,
+    reps: last ? last.reps : 10,
     weight: last ? last.weight : DEFAULT_WEIGHT,
     touched: false,
     finished: false,
@@ -246,12 +317,32 @@ async function completeSession() {
   active.completed_at = new Date().toISOString();
   active.synced = false;
   const finished = active;
+  const completedType = active.workout;
   await window.DB.saveCompletedSession(finished);
   await window.DB.clearActiveSession();
   active = null;
+
+  // Advance the 5/3/1 state of the completed workout's main lift. This is the
+  // ONLY place the program advances, and it is driven purely by the user
+  // completing a workout — never by the calendar. After the four-week cycle
+  // (week 4 = deload) the Training Max increases and a new cycle begins.
+  const main = mainLiftFor(completedType);
+  const st = program.lifts[main.id];
+  if (st.week >= 4) {
+    st.week = 1;
+    st.cycle += 1;
+    st.tm = roundToHalf(st.tm + main.tmIncrement);
+  } else {
+    st.week += 1;
+  }
+  // Move the sequence cursor Push -> Pull -> Full Body -> Push ...
+  program.nextWorkout = successorWorkout(completedType);
+  await window.DB.setProgram(program);
+
   await loadPastSessions();
-  // Begin the next session right away (seeds weights from the just-saved one).
-  await startNewSession();
+  // Open the next pending workout right away so it is ready without a manual
+  // start; it stays pending indefinitely until the user actually performs it.
+  await startNewSession(program.nextWorkout);
   // Attempt to sync the completed session; if offline it stays queued and is
   // retried later. Then reconcile the swipe panels with D1.
   await syncPending();
@@ -294,6 +385,37 @@ async function setWeightManual(id, raw) {
   set.touched = true;
   await persistActive();
   updateSetDom(set); // normalize the displayed value
+}
+
+// Edit a main lift's Training Max. Persists it to the program (so future cycles
+// use it) and re-prescribes the not-yet-finished working sets of the current
+// session from the new TM. Does not touch series the user already locked in.
+async function setTrainingMax(liftId, raw) {
+  if (!program || !program.lifts[liftId]) return;
+  let v = parseFloat(String(raw).replace(",", "."));
+  if (isNaN(v) || v < 0) v = 0;
+  v = roundToHalf(v);
+  program.lifts[liftId].tm = v;
+  await window.DB.setProgram(program);
+
+  if (active && active.mainLift && active.mainLift.id === liftId) {
+    active.mainLift.tm = v;
+    const mainSets = computeMainSets(active.mainLift.week, v);
+    active.sets
+      .filter((s) => s.exercise_id === liftId)
+      .sort((a, b) => a.set_number - b.set_number)
+      .forEach((s, i) => {
+        const ms = mainSets[i];
+        if (ms && !s.finished) {
+          s.weight = ms.weight;
+          s.pct = ms.pct;
+          s.targetReps = ms.reps;
+          s.reps = ms.reps;
+        }
+      });
+    await persistActive();
+  }
+  render();
 }
 
 function setDomValue(el, value) {
@@ -385,21 +507,23 @@ function renderNoSession() {
       <button class="link-btn" data-action="go-history">Historial</button>
     </header>
     <main class="screen center${slideClass()}">
-      <p class="hint">No hay una sesión activa.</p>
-      <button class="btn btn-primary btn-huge" data-action="new-session">NUEVA SESIÓN</button>
+      <p class="hint">Próximo entrenamiento: ${esc(workoutDef(program.nextWorkout).name)}</p>
+      <button class="btn btn-primary btn-huge" data-action="new-session">EMPEZAR</button>
     </main>
   `;
 }
 
 function renderTracker() {
-  const exercisesHtml = window.ROUTINE.map(renderExerciseBlock).join("");
+  const def = workoutDef(active.workout);
+  const exercisesHtml = def.exercises.map(renderExerciseBlock).join("");
 
   appEl.innerHTML = `
     <header class="topbar">
-      <h1>Entrenamiento</h1>
+      <h1>${esc(def.name)}</h1>
       <button class="link-btn" data-action="go-history">Historial</button>
     </header>
     <main class="screen${slideClass()}">
+      <div class="workout-banner">${esc(def.name)}</div>
       ${exercisesHtml}
       <button class="btn btn-complete" data-action="complete">COMPLETAR SESIÓN</button>
     </main>
@@ -412,9 +536,33 @@ function renderExerciseBlock(ex) {
     .sort((a, b) => a.set_number - b.set_number);
   const total = sets.length;
   const rows = sets.map((s) => renderSeriesRow(s, total)).join("");
+
+  let badge;
+  let meta;
+  if (ex.main) {
+    const st = active.mainLift;
+    badge = `<span class="ex-badge ex-badge-main">Principal · 5/3/1</span>`;
+    meta = `
+      <div class="ex-meta">
+        <span>Semana ${st.week}/4 · Ciclo ${st.cycle}</span>
+        <span class="tm-edit">TM
+          <input class="tm-input" type="text" inputmode="decimal"
+            data-tm-lift="${ex.id}" value="${formatWeight(st.tm)}" aria-label="Training Max en kg" />
+          kg
+        </span>
+      </div>`;
+  } else {
+    badge = `<span class="ex-badge">Accesorio</span>`;
+    meta = `<div class="ex-meta">objetivo: ${ex.sets} × ${ex.repRange[0]}–${ex.repRange[1]}</div>`;
+  }
+
   return `
     <section class="card exercise-block">
-      <h2 class="exercise-name">${esc(ex.name)}</h2>
+      <div class="exercise-head">
+        <h2 class="exercise-name">${esc(exerciseName(ex.id))}</h2>
+        ${badge}
+      </div>
+      ${meta}
       <div class="series-head-row">
         <span></span>
         <span class="col-head">Peso</span>
@@ -429,9 +577,15 @@ function renderExerciseBlock(ex) {
 
 function renderSeriesRow(s, total) {
   const dis = s.finished ? " disabled" : "";
+  // Main-lift series (with a 5/3/1 prescription) show the target %×reps; plain
+  // series show the usual "Serie n/total".
+  const label =
+    s.pct != null
+      ? `Serie ${s.set_number} · <span class="set-target">${Math.round(s.pct * 100)}%×${s.targetReps}</span>`
+      : `Serie ${s.set_number}/${total}`;
   return `
     <div class="series-row${s.touched ? " touched" : ""}${s.finished ? " finished" : ""}" data-row-id="${s.id}">
-      <span class="series-num">Serie ${s.set_number}/${total}</span>
+      <span class="series-num">${label}</span>
       <div class="mini-stepper">
         <button class="btn btn-mini" data-action="weight" data-id="${s.id}" data-delta="-0.5"${dis}>−</button>
         <input class="mini-input" type="text" inputmode="decimal" data-val="weight" data-id="${s.id}" value="${formatWeight(s.weight)}" aria-label="Peso en kg"${dis} />
@@ -458,6 +612,26 @@ function renderSeriesRow(s, total) {
     </div>`;
 }
 
+// Group a completed session's sets by exercise id.
+function groupByExercise(sess) {
+  const byExercise = new Map();
+  for (const s of sess.sets || []) {
+    if (!byExercise.has(s.exercise_id)) byExercise.set(s.exercise_id, []);
+    byExercise.get(s.exercise_id).push(s);
+  }
+  return byExercise;
+}
+
+// Exercise ids present in a session, ordered by the canonical list. Any id not
+// in the list (unknown/future) is appended in first-seen order so nothing is
+// dropped from history.
+function orderedExerciseIds(byExercise) {
+  const present = new Set(byExercise.keys());
+  const ordered = window.EXERCISE_ORDER.filter((id) => present.has(id));
+  for (const id of byExercise.keys()) if (!ordered.includes(id)) ordered.push(id);
+  return ordered;
+}
+
 // Read-only view of a past workout, reachable by swiping right from the tracker.
 function renderPast(idx) {
   const sess = pastSessions[idx];
@@ -468,15 +642,11 @@ function renderPast(idx) {
   }
   const label = idx === 0 ? "Último entrenamiento" : `Hace ${idx + 1} entrenamientos`;
 
-  const byExercise = new Map();
-  for (const s of sess.sets || []) {
-    if (!byExercise.has(s.exercise_id)) byExercise.set(s.exercise_id, []);
-    byExercise.get(s.exercise_id).push(s);
-  }
-  const blocks = window.ROUTINE.filter((ex) => byExercise.has(ex.id))
-    .map((ex) => {
+  const byExercise = groupByExercise(sess);
+  const blocks = orderedExerciseIds(byExercise)
+    .map((exId) => {
       const sets = byExercise
-        .get(ex.id)
+        .get(exId)
         .slice()
         .sort((a, b) => a.set_number - b.set_number);
       const lines = sets
@@ -485,7 +655,7 @@ function renderPast(idx) {
             `<div class="past-series"><span>Serie ${s.set_number}</span><span>${formatWeight(s.weight)} kg × ${s.reps}</span></div>`
         )
         .join("");
-      return `<div class="past-ex"><div class="past-ex-name">${esc(ex.name)}</div>${lines}</div>`;
+      return `<div class="past-ex"><div class="past-ex-name">${esc(exerciseName(exId))}</div>${lines}</div>`;
     })
     .join("");
 
@@ -543,16 +713,13 @@ async function renderHistory() {
 }
 
 function renderHistorySession(sess) {
-  // Group sets by exercise, preserving routine order.
-  const byExercise = new Map();
-  for (const s of sess.sets || []) {
-    if (!byExercise.has(s.exercise_id)) byExercise.set(s.exercise_id, []);
-    byExercise.get(s.exercise_id).push(s);
-  }
-  const blocks = window.ROUTINE.filter((ex) => byExercise.has(ex.id))
-    .map((ex) => {
+  // Group sets by exercise; order via the canonical list so both legacy and new
+  // sessions read top-to-bottom in a sensible order and keep their real names.
+  const byExercise = groupByExercise(sess);
+  const blocks = orderedExerciseIds(byExercise)
+    .map((exId) => {
       const sets = byExercise
-        .get(ex.id)
+        .get(exId)
         .slice()
         .sort((a, b) => a.set_number - b.set_number);
       const weights = [...new Set(sets.map((s) => formatWeight(s.weight)))];
@@ -564,7 +731,7 @@ function renderHistorySession(sess) {
       const repsText = sets.map((s) => s.reps).join(" / ");
       return `
         <div class="hist-exercise">
-          <div class="hist-ex-name">${esc(ex.name)}</div>
+          <div class="hist-ex-name">${esc(exerciseName(exId))}</div>
           <div class="hist-ex-data">${weightText} — ${repsText}</div>
         </div>`;
     })
@@ -602,15 +769,17 @@ async function exportCsv() {
   const rows = [header];
   for (const sess of sessions) {
     const sets = [...(sess.sets || [])].sort((a, b) => {
-      const ia = window.ROUTINE.findIndex((e) => e.id === a.exercise_id);
-      const ib = window.ROUTINE.findIndex((e) => e.id === b.exercise_id);
+      // Order by the canonical exercise list (unknown ids sort last), then set.
+      let ia = window.EXERCISE_ORDER.indexOf(a.exercise_id);
+      let ib = window.EXERCISE_ORDER.indexOf(b.exercise_id);
+      if (ia === -1) ia = Infinity;
+      if (ib === -1) ib = Infinity;
       return ia - ib || a.set_number - b.set_number;
     });
     for (const s of sets) {
-      const ex = exerciseById(s.exercise_id);
       rows.push([
         sess.id, sess.started_at, sess.completed_at, sess.completed_at.slice(0, 10),
-        s.exercise_id, ex ? ex.name : s.exercise_id, s.set_number, s.reps, s.weight,
+        s.exercise_id, exerciseName(s.exercise_id), s.set_number, s.reps, s.weight,
       ]);
     }
   }
@@ -659,7 +828,7 @@ appEl.addEventListener("click", async (e) => {
 
   switch (action) {
     case "new-session":
-      await startNewSession();
+      await startNewSession(program.nextWorkout);
       break;
     case "reps":
       await changeReps(btn.dataset.id, Number(btn.dataset.delta));
@@ -697,15 +866,20 @@ appEl.addEventListener("click", async (e) => {
   }
 });
 
-// Manual weight entry commits on blur / Enter (the "change" event).
+// Manual weight entry and Training-Max entry commit on blur / Enter ("change").
 appEl.addEventListener("change", async (e) => {
-  const input = e.target.closest('input[data-val="weight"]');
-  if (input) await setWeightManual(input.dataset.id, input.value);
+  const weight = e.target.closest('input[data-val="weight"]');
+  if (weight) {
+    await setWeightManual(weight.dataset.id, weight.value);
+    return;
+  }
+  const tm = e.target.closest("input[data-tm-lift]");
+  if (tm) await setTrainingMax(tm.dataset.tmLift, tm.value);
 });
 
-// Pressing Enter in a weight input commits and blurs it.
+// Pressing Enter in a weight or TM input commits and blurs it.
 appEl.addEventListener("keydown", (e) => {
-  const input = e.target.closest('input[data-val="weight"]');
+  const input = e.target.closest('input[data-val="weight"], input[data-tm-lift]');
   if (input && e.key === "Enter") {
     e.preventDefault();
     input.blur();
@@ -722,7 +896,7 @@ appEl.addEventListener(
   (e) => {
     // Ignore multi-touch and gestures that begin on the editable weight field,
     // so text selection / caret placement still works there.
-    if (e.touches.length !== 1 || e.target.closest(".mini-input")) {
+    if (e.touches.length !== 1 || e.target.closest(".mini-input, .tm-input")) {
       touchStartX = null;
       return;
     }
@@ -752,15 +926,37 @@ appEl.addEventListener(
 window.addEventListener("online", syncPending);
 
 (async function init() {
+  // Load (or initialize) the program progression state first: everything else
+  // depends on knowing which workout is next and each main lift's 5/3/1 state.
+  program = await window.DB.getProgram();
+  if (!program) {
+    program = defaultProgram();
+    await window.DB.setProgram(program);
+  } else {
+    program = migrateProgram(program);
+  }
+
   await loadPastSessions();
   active = await window.DB.getActiveSession();
-  // Migrate/repair an active session so it always has all 15 series (handles
-  // sessions created by an older app version).
+
+  // A session left over from the OLD dumbbell routine has no `workout` field.
+  // It is only an in-progress (never-completed) session, so discarding it loses
+  // no history; the new program simply presents its first pending workout.
+  if (active && !active.workout) {
+    await window.DB.clearActiveSession();
+    active = null;
+  }
+
   if (active) {
+    // Repair a new-format session so every exercise has its base series.
     const completed = await window.DB.getAllCompletedSessions();
     const before = JSON.stringify(active.sets);
     ensureFullSession(active, completed);
     if (JSON.stringify(active.sets) !== before) await persistActive();
+  } else {
+    // No pending session: open the next workout so it is ready without a
+    // manual start.
+    await startNewSession(program.nextWorkout);
   }
   render();
   // Reconcile the swipe panels with D1 (they were filled from local above).

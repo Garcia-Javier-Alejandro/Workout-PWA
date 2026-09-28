@@ -1,26 +1,47 @@
 # Workout PWA
 
-A deliberately simple Progressive Web App to record a dumbbell workout routine,
-built for use from Firefox on Android during training.
+A deliberately simple Progressive Web App to record a **Push / Pull / Full Body**
+workout routine, built for use from Firefox on Android during training.
 
 The app is a **recorder**, not a coach: the user fully controls the session
 lifecycle. Nothing starts, ends, or discards a session automatically, and there
-are no timers of any kind.
+are no timers of any kind. Progression is driven **only** by completed workouts,
+never by the calendar — miss a week and the same pending workout is still there.
+
+## Program
+
+Three workouts run in a fixed loop **Push → Pull → Full Body → Push → …**. Each
+has one **main lift** on a simplified 5/3/1 (percentages of an editable Training
+Max; week 1 = 5s, week 2 = 3s, week 3 = 5/3/1, week 4 = deload; the TM goes up
+after each four-week cycle) plus three **accessories** on double progression:
+
+- **Push** — Bench Press (5/3/1), Squat 3×6–8, Row 3×8–12, Lateral Raise 3×12–15
+- **Pull** — Deadlift (5/3/1), Overhead Press 3×6–8, Lat Pulldown 3×8–12, Curl 3×10–15
+- **Full Body** — Squat (5/3/1), Bench Press 3×6–8, Romanian Deadlift 3×8–10, Row 3×8–12
+
+The program config lives in [`pwa/routine.js`](pwa/routine.js); the per-lift
+5/3/1 state (TM / week / cycle) and the sequence cursor are stored in IndexedDB.
 
 ## Usage
 
-- **NUEVA SESIÓN** creates a session with all 15 series (5 exercises × 3)
-  visible on a single page. Each series' weight is seeded from the last weight
-  used for that exercise; reps from the routine's initial value.
+- The next workout is always presented ready to record — there is no manual
+  start. Each series' weight is seeded from the main lift's prescribed load, or
+  (for accessories) from the last time that exercise was done.
+- Set your real **Training Max** for a main lift in the `TM` field on its card;
+  the working-set weights recalculate immediately.
 - Adjust weight (0.5 kg steps) and reps for any series, in any order, with the
   `+` / `−` steppers. There is no "next" action.
-- **COMPLETAR SESIÓN** is the only thing that closes a session: it saves all 15
-  series to D1 and moves the session to history. The active session survives
-  closing the browser, reboots, and any amount of time.
+- **COMPLETAR SESIÓN** is the only thing that closes a session: it saves the
+  series to D1, advances the 5/3/1 state of that workout's main lift and the
+  sequence cursor, and opens the next pending workout. The active session
+  survives closing the browser, reboots, and any amount of time.
 - **Exportar CSV** (in Historial) downloads the full history as a CSV with one
   row per series: `session_id, started_at, completed_at, date, exercise_id,
   exercise_name, set_number, reps, weight_kg`. Uses D1 when reachable, else the
   local copy.
+
+Sessions from the previous dumbbell routine remain intact in history and keep
+their original exercise names.
 
 ## Architecture
 
