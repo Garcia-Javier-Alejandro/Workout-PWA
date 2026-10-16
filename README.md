@@ -64,6 +64,25 @@ Cloudflare D1      (source of truth for completed-session history)
   D1. Inserts use `INSERT OR IGNORE`, so retries with the same ids never
   duplicate data.
 
+## Access
+
+The PWA is served from a **custom domain** on Cloudflare Pages:
+
+```
+https://gym.pignuslabs.com.ar   (CNAME → workout-pwa-akz.pages.dev, proxied)
+```
+
+A custom domain is used instead of the default `*.pages.dev` hostname because
+some DNS security/filtering resolvers (ISP filters, Android Private DNS,
+Cloudflare-for-Families `1.1.1.2`/`1.1.1.3`, NextDNS, etc.) **blocklist the
+whole `pages.dev` zone** (it is heavily abused for phishing). On such a
+resolver the default hostname fails to resolve on every network and device,
+while the plain API hostname (`*.workers.dev`) keeps working — which looks like
+an outage but is a client-side DNS block. With the CNAME **proxied** (orange
+cloud) the resolved name is `gym.pignuslabs.com.ar`, so `pages.dev` never
+appears in the lookup and the filter has nothing to block. `config.js` points
+the API at `*.workers.dev` and needs no change for the custom domain.
+
 ## Project structure
 
 ```
