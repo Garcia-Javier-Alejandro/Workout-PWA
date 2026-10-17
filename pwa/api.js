@@ -1,7 +1,36 @@
 // Thin client for the Cloudflare Worker API.
 // The shared secret is sent in the X-App-Key header on every request.
+//
+// Requests go first to /api on the app's own domain (a Pages Function that
+// proxies to the Worker), so the phone never needs to resolve workers.dev,
+// which some DNS filters block. If the proxy fails, the direct Worker URL from
+// config.js is tried as a fallback.
+
+// A response only counts if it is JSON: without the proxy deployed, Pages may
+// answer /api/* with the HTML app shell and a 200.
+function isJson(res) {
+  return (res.headers.get("Content-Type") || "").includes("application/json");
+}
 
 const API = {
+  bases() {
+    return ["/api", window.APP_CONFIG.API_BASE];
+  },
+
+  async request(path, init) {
+    let lastErr;
+    for (const base of this.bases()) {
+      try {
+        const res = await fetch(`${base}${path}`, init);
+        if (res.ok && isJson(res)) return res.json();
+        lastErr = new Error(`${init.method} ${base}${path} failed: ${res.status}`);
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
+  },
+
   headers() {
     return {
       "Content-Type": "application/json",
@@ -28,23 +57,19 @@ const API = {
         weight: s.weight,
       })),
     };
-    const res = await fetch(`${window.APP_CONFIG.API_BASE}/sessions`, {
+    return this.request("/sessions", {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`POST /sessions failed: ${res.status}`);
-    return res.json();
   },
 
   // Fetch full history from D1 via the Worker.
   async getSessions() {
-    const res = await fetch(`${window.APP_CONFIG.API_BASE}/sessions`, {
+    const data = await this.request("/sessions", {
       method: "GET",
       headers: this.headers(),
     });
-    if (!res.ok) throw new Error(`GET /sessions failed: ${res.status}`);
-    const data = await res.json();
     return data.sessions || [];
   },
 };

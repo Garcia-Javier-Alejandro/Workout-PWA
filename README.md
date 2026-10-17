@@ -80,8 +80,14 @@ resolver the default hostname fails to resolve on every network and device,
 while the plain API hostname (`*.workers.dev`) keeps working — which looks like
 an outage but is a client-side DNS block. With the CNAME **proxied** (orange
 cloud) the resolved name is `gym.pignuslabs.com.ar`, so `pages.dev` never
-appears in the lookup and the filter has nothing to block. `config.js` points
-the API at `*.workers.dev` and needs no change for the custom domain.
+appears in the lookup and the filter has nothing to block.
+
+The API is reached the same way: the PWA calls `/api/*` on its own domain, and
+a Pages Function (`functions/api/[[path]].js`) proxies it to the Worker from
+Cloudflare's edge, so the phone never resolves `*.workers.dev` either. If the
+proxy fails, the client falls back to the direct Worker URL in `config.js`
+(`API_BASE`). The proxy target can be overridden with a `WORKER_ORIGIN`
+variable in the Pages project.
 
 ## Project structure
 

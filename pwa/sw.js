@@ -3,7 +3,7 @@
 // straight to the network (and fail gracefully offline — the session is kept
 // locally in IndexedDB and synced later).
 
-const CACHE = "workout-pwa-v10";
+const CACHE = "workout-pwa-v11";
 const ASSETS = [
   "./",
   "./index.html",
@@ -43,6 +43,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   // Only handle same-origin app-shell requests; let API and other origins pass.
   if (url.origin !== self.location.origin) return;
+  // The same-origin API proxy must always hit the network, never the cache.
+  if (url.pathname.startsWith("/api/")) return;
 
   // Cache-first for the app shell.
   event.respondWith(
