@@ -680,10 +680,20 @@ async function renderHistory() {
       <button class="link-btn" data-action="export-csv">Exportar CSV</button>
     </header>
     <main class="screen${slideClass()}">
+      <section class="card bw-card">
+        <div class="bw-head">
+          <span class="hist-date">Peso corporal</span>
+          <button class="link-btn" data-action="export-bw-csv">CSV</button>
+        </div>
+        <div class="bw-list" id="bw-list"></div>
+        <button class="btn btn-primary bw-btn" data-action="record-bw">REGISTRAR PESO</button>
+      </section>
       <div class="history-status" id="history-status">Cargando…</div>
       <div id="history-list"></div>
     </main>
   `;
+
+  renderBodyWeights();
 
   let sessions = [];
   let source = "";
@@ -784,16 +794,97 @@ async function exportCsv() {
     }
   }
 
+  downloadCsv(rows, "workout-history");
+}
+
+function downloadCsv(rows, baseName) {
   const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `workout-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${baseName}-${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ---------- body weight ----------
+
+// How many recent weigh-ins the Historial card lists.
+const BW_VISIBLE = 5;
+
+// D1 entries plus any local ones not synced yet, most recent first, so a new
+// weigh-in shows up immediately even offline. Falls back to local data only.
+async function loadBodyWeights() {
+  const local = await window.DB.getAllBodyWeights();
+  let entries;
+  try {
+    entries = await window.API.getBodyWeights();
+    const ids = new Set(entries.map((e) => e.id));
+    for (const e of local) if (!ids.has(e.id)) entries.push(e);
+  } catch (_) {
+    entries = local;
+  }
+  return entries.sort((a, b) => (a.recorded_at < b.recorded_at ? 1 : -1));
+}
+
+async function renderBodyWeights() {
+  const entries = await loadBodyWeights();
+  const listEl = document.getElementById("bw-list");
+  if (!listEl) return; // screen changed while awaiting
+  if (!entries.length) {
+    listEl.innerHTML = `<p class="hint">Todavía no registraste tu peso.</p>`;
+    return;
+  }
+  listEl.innerHTML = entries
+    .slice(0, BW_VISIBLE)
+    .map(
+      (e) => `
+        <div class="bw-row">
+          <span>${formatDate(e.recorded_at)}${e.synced === false ? ' <span class="bw-pending">· pendiente</span>' : ""}</span>
+          <span class="bw-value">${formatWeight(e.weight)} kg</span>
+        </div>`
+    )
+    .join("");
+}
+
+// Ask for today's body weight and record it with the current date and time.
+// Saved locally first, then synced to D1 (queued if offline).
+async function recordBodyWeight() {
+  const raw = prompt("Peso corporal (kg):");
+  if (raw === null) return; // cancelled
+  const v = parseFloat(String(raw).replace(",", "."));
+  if (isNaN(v) || v <= 0 || v > 400) {
+    alert("Peso inválido.");
+    return;
+  }
+  await window.DB.saveBodyWeight({
+    id: crypto.randomUUID(),
+    recorded_at: new Date().toISOString(),
+    weight: Math.round(v * 10) / 10, // single decimal place
+    synced: false,
+  });
+  if (currentPanel === "history") renderBodyWeights();
+  syncPending();
+}
+
+async function exportBodyWeightCsv() {
+  const entries = (await loadBodyWeights()).reverse(); // oldest first
+  const rows = [["id", "recorded_at", "date", "weight_kg"]];
+  for (const e of entries) {
+    rows.push([e.id, e.recorded_at, localDate(e.recorded_at), e.weight]);
+  }
+  downloadCsv(rows, "body-weight");
+}
+
+// YYYY-MM-DD in the phone's local time zone.
+function localDate(iso) {
+  const d = new Date(iso);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
 // ---------- sync ----------
@@ -809,6 +900,15 @@ async function syncPending() {
       try {
         await window.API.postSession(sess);
         await window.DB.markSynced(sess.id);
+      } catch (_) {
+        // Leave queued; will retry on next opportunity.
+      }
+    }
+    const weights = await window.DB.getAllBodyWeights();
+    for (const entry of weights.filter((e) => !e.synced)) {
+      try {
+        await window.API.postBodyWeight(entry);
+        await window.DB.markBodyWeightSynced(entry.id);
       } catch (_) {
         // Leave queued; will retry on next opportunity.
       }
@@ -857,6 +957,12 @@ appEl.addEventListener("click", async (e) => {
       break;
     case "export-csv":
       await exportCsv();
+      break;
+    case "record-bw":
+      await recordBodyWeight();
+      break;
+    case "export-bw-csv":
+      await exportBodyWeightCsv();
       break;
     case "go-tracker":
       lastNavDir = 1;

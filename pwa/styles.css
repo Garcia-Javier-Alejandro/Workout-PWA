@@ -404,6 +404,29 @@ html, body {
 .hist-exercise:first-of-type { border-top: none; }
 
 .hist-ex-name { font-weight: 600; }
+
+/* Body-weight card at the top of Historial. */
+.bw-card { padding: 18px 20px; }
+.bw-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.bw-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.bw-row:first-child { border-top: none; }
+.bw-value { font-weight: 600; }
+.bw-pending { color: var(--muted); font-size: 0.85rem; }
+.bw-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  font-size: 1rem;
+}
 .hist-ex-data { color: var(--muted); font-size: 0.95rem; }
 
 /* ---------- past-workout swipe view (read-only) ---------- */

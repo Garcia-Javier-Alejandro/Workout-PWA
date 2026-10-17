@@ -23,3 +23,13 @@ CREATE TABLE IF NOT EXISTS sets (
 CREATE INDEX IF NOT EXISTS idx_sets_session_id  ON sets(session_id);
 CREATE INDEX IF NOT EXISTS idx_sets_exercise_id ON sets(exercise_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_completed_at ON sessions(completed_at);
+
+-- Body-weight log: one row per weigh-in. Same idempotency rules as above
+-- (client-generated UUID v4 id + INSERT OR IGNORE).
+CREATE TABLE IF NOT EXISTS body_weights (
+  id          TEXT PRIMARY KEY,
+  recorded_at TEXT NOT NULL,
+  weight      REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_body_weights_recorded_at ON body_weights(recorded_at);

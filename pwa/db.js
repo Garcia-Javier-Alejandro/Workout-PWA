@@ -5,13 +5,14 @@
 //    key "active" (or nothing when there is no active session).
 //  - "sessions": completed sessions kept locally. Each record carries a
 //    `synced` flag. Records with synced=false are the sync queue for D1.
+//  - "bodyweights": body-weight entries, with the same `synced` flag queue.
 //
 // The active session is stored in IndexedDB (not just localStorage) so that a
 // complete session can be recorded offline and the whole structured state
 // survives Firefox closing, phone reboots, and any amount of time passing.
 
 const DB_NAME = "workout-pwa";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -25,6 +26,9 @@ function openDB() {
         const store = db.createObjectStore("sessions", { keyPath: "id" });
         store.createIndex("synced", "synced", { unique: false });
         store.createIndex("completed_at", "completed_at", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("bodyweights")) {
+        db.createObjectStore("bodyweights", { keyPath: "id" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -104,6 +108,30 @@ const DB = {
     if (session) {
       session.synced = true;
       await reqToPromise(store.put(session));
+    }
+    db.close();
+  },
+
+  async saveBodyWeight(entry) {
+    const db = await openDB();
+    await reqToPromise(tx(db, "bodyweights", "readwrite").put(entry));
+    db.close();
+  },
+
+  async getAllBodyWeights() {
+    const db = await openDB();
+    const result = await reqToPromise(tx(db, "bodyweights", "readonly").getAll());
+    db.close();
+    return result || [];
+  },
+
+  async markBodyWeightSynced(id) {
+    const db = await openDB();
+    const store = tx(db, "bodyweights", "readwrite");
+    const entry = await reqToPromise(store.get(id));
+    if (entry) {
+      entry.synced = true;
+      await reqToPromise(store.put(entry));
     }
     db.close();
   },

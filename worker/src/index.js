@@ -5,6 +5,8 @@
  *  - POST /sessions : receive one completed session with all its sets in a
  *    single call and persist it idempotently (INSERT OR IGNORE).
  *  - GET  /sessions : return the historical sessions with their sets.
+ *  - POST /bodyweight : record one body-weight entry (idempotent).
+ *  - GET  /bodyweight : return all body-weight entries, most recent first.
  *
  * Authentication is a shared secret sent in the `X-App-Key` header, read from
  * the `APP_KEY` Worker Secret. This only deters casual traffic; there are no
@@ -48,6 +50,12 @@ export default {
       }
       if (path === "/sessions" && request.method === "GET") {
         return await listSessions(env);
+      }
+      if (path === "/bodyweight" && request.method === "POST") {
+        return await createBodyWeight(request, env);
+      }
+      if (path === "/bodyweight" && request.method === "GET") {
+        return await listBodyWeights(env);
       }
       if (path === "/health") {
         return json({ ok: true });
@@ -133,4 +141,34 @@ async function listSessions(env) {
   }));
 
   return json({ sessions: shaped });
+}
+
+/**
+ * Persist one body-weight entry. Idempotent like sessions: the client UUID is
+ * the PRIMARY KEY and INSERT OR IGNORE skips retries.
+ */
+async function createBodyWeight(request, env) {
+  const body = await request.json();
+  if (
+    !body ||
+    !body.id ||
+    !body.recorded_at ||
+    typeof body.weight !== "number" ||
+    !(body.weight > 0)
+  ) {
+    return json({ error: "invalid_body_weight" }, 400);
+  }
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO body_weights (id, recorded_at, weight) VALUES (?, ?, ?)"
+  )
+    .bind(body.id, body.recorded_at, body.weight)
+    .run();
+  return json({ ok: true, id: body.id });
+}
+
+async function listBodyWeights(env) {
+  const res = await env.DB.prepare(
+    "SELECT id, recorded_at, weight FROM body_weights ORDER BY recorded_at DESC"
+  ).all();
+  return json({ entries: res.results || [] });
 }

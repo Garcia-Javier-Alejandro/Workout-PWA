@@ -39,6 +39,10 @@ The program config lives in [`pwa/routine.js`](pwa/routine.js); the per-lift
   row per series: `session_id, started_at, completed_at, date, exercise_id,
   exercise_name, set_number, reps, weight_kg`. Uses D1 when reachable, else the
   local copy.
+- **Peso corporal** (top of Historial): **REGISTRAR PESO** asks for your body
+  weight and records it with the current date and time. The last 5 entries are
+  listed; **CSV** downloads all of them. Entries are saved on the phone first
+  and synced to D1 (shown as "pendiente" until synced).
 
 Sessions from the previous dumbbell routine remain intact in history and keep
 their original exercise names.
@@ -209,8 +213,19 @@ For the Worker locally: `cd worker && wrangler dev`.
 ## Data model
 
 ```
-Session: id (uuid), started_at, completed_at
-Set:     id (uuid), session_id, exercise_id, set_number, reps, weight
+Session:    id (uuid), started_at, completed_at
+Set:        id (uuid), session_id, exercise_id, set_number, reps, weight
+BodyWeight: id (uuid), recorded_at, weight
+```
+
+`db/schema.sql` only uses `CREATE ... IF NOT EXISTS`, so re-running it on an
+existing database is safe and just adds any missing tables (e.g. after the
+`body_weights` table was introduced):
+
+```bash
+cd worker
+wrangler d1 execute workout-pwa --remote --file=../db/schema.sql
+wrangler deploy
 ```
 
 Every set is stored individually, enabling later performance analysis (weight
@@ -224,5 +239,9 @@ All requests require the `X-App-Key` header.
 - `POST /sessions` — body `{ session: {id, started_at, completed_at}, sets: [...] }`.
   Idempotent (`INSERT OR IGNORE`). Returns `{ ok, session_id, sets }`.
 - `GET /sessions` — returns `{ sessions: [ { id, started_at, completed_at, sets: [...] } ] }`,
+  most recent first.
+- `POST /bodyweight` — body `{ id, recorded_at, weight }`. Idempotent
+  (`INSERT OR IGNORE`). Returns `{ ok, id }`.
+- `GET /bodyweight` — returns `{ entries: [ { id, recorded_at, weight } ] }`,
   most recent first.
 - `GET /health` — liveness check.

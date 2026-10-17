@@ -72,6 +72,28 @@ const API = {
     });
     return data.sessions || [];
   },
+
+  // Record one body-weight entry. Idempotent server-side like sessions.
+  async postBodyWeight(entry) {
+    return this.request("/bodyweight", {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({
+        id: entry.id,
+        recorded_at: entry.recorded_at,
+        weight: entry.weight,
+      }),
+    });
+  },
+
+  // All body-weight entries from D1, most recent first.
+  async getBodyWeights() {
+    const data = await this.request("/bodyweight", {
+      method: "GET",
+      headers: this.headers(),
+    });
+    return data.entries || [];
+  },
 };
 
 window.API = API;
